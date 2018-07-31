@@ -22,15 +22,23 @@ all: ./../out/server ./../out/client
 	mkdir -p ./../out
 	g++ -std=c++11 -c com.cpp -o ./../out/com.o
 
-./../out/client:  ./../out/com.o ./../out/client.o ./../out/virtual_ring.o ./../out/ftpclientlib.o ./../out/ftpserverlib.o
+./../out/client:  ./../out/com.o ./../out/page_rank.o ./../out/client.o ./../out/sava.o ./../out/virtual_ring.o ./../out/ftpclientlib.o ./../out/ftpserverlib.o
 	mkdir -p ./../out
 	mkdir -p ./../out/downloads
 	mkdir -p ./../out/backups
 	mkdir -p ./../out/uploads
-	g++ -std=c++11  ./../out/client.o ./../out/com.o ./../out/ftpclientlib.o ./../out/ftpserverlib.o ./../out/virtual_ring.o -o ./../out/client -lboost_thread -lboost_system -pthread
+	g++ -std=c++11  ./../out/client.o ./../out/page_rank.o ./../out/sava.o ./../out/com.o ./../out/ftpclientlib.o ./../out/ftpserverlib.o ./../out/virtual_ring.o -o ./../out/client -lboost_thread -lboost_system -pthread
 
 
-./../out/client.o: client.cpp membershiplist.hpp
+./../out/sava.o: sava.hpp sava.cpp
+	mkdir -p ./../out
+	g++ -std=c++11 -w -c sava.cpp -o ./../out/sava.o
+
+./../out/page_rank.o: page_rank_vertex.hpp page_rank_vertex.cpp
+	mkdir -p ./../out
+	g++ -std=c++11 -w -c page_rank_vertex.cpp -o ./../out/page_rank.o
+
+./../out/client.o: client.cpp client.hpp membershiplist.hpp
 	mkdir -p ./../out
 	g++ -std=c++11 -w -c client.cpp  -o ./../out/client.o
 

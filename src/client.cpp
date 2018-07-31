@@ -25,15 +25,12 @@
 #include <cstdio>
 #include <time.h>
 #include "ftplib.hpp"
+#include "client.hpp"
+#include "page_rank_vertex.hpp"
+#include "sava.hpp"
 #include <mutex>
 #include <boost/date_time.hpp>
-#define MEM_LISTNER_PORT 10114
-#define INTRO_PORT 10115
-#define UPDATE_PORT 10116
-#define DEBUG 0     
-#define PUTFILE_PORT 10117
-#define FTP_SERVER_PORT 10118
-#define MONITOR_SERVER_PORT 10119
+
 using boost::asio::ip::udp;
 
 
@@ -321,6 +318,9 @@ int number_of_active_nodes(){
 }
 
 std::vector<std::string> where_to(std::string request){
+    if(number_of_active_nodes()-1 < 3){
+        return  std::vector<std::string>();
+    }
     int val = 37+ ((int(request.at(0)) -'a') % (number_of_active_nodes()-1));
     std::map<std::string,member_entry>::iterator it = member_list.begin();
     std::vector<std::string> res;
@@ -682,7 +682,7 @@ std::string find_file_remote(std::vector<std::string> ips, std::string file_name
  */
 void monitor(){
 
-    boost::this_thread::sleep(boost::posix_time::milliseconds(15000));
+    boost::this_thread::sleep(boost::posix_time::milliseconds(16500000));
     //std::cout << "[MONITOR] monitoring local fs\n";
     if(member_list.size() >= 4){
         std::vector<std::string> local_file_list;
@@ -724,6 +724,61 @@ inline bool is_file_exist(const std::string& name) {
   return (stat (name.c_str(), &buffer) == 0); 
 }
 
+void find_mpx(std::map<int, PageRankVertex > vertices){
+    
+    
+    for(int i=0; i < 20; ++i){
+        int max = 0;
+        std::map<int, PageRankVertex>::iterator bt ;
+        std::map<int, PageRankVertex>::iterator it = vertices.begin();  
+        while(it != vertices.end()){
+            if(it->second.score > max){
+                
+                max = it->second.score;
+                bt = it;
+            }
+            it++;
+            
+        }
+        std::cout << i+1 << ". " << bt->first << " " << bt->second.score << std::endl;
+        vertices.erase(bt->first);
+    }
+
+
+}
+
+int bbol = true;
+void fdet(std::vector<std::string> ips, std::string num_workers, std::string num_iterations){
+   // std::cout << "failure detector\n";
+    for(int i = 0 ; i < ips.size() ; ++i){
+        std::map<std::string,member_entry>::iterator it = member_list.find(ips[i]);
+        if(it->second.failed_ == true ){
+            std::cout << "Failure Detected \n";
+            std::string data = get_info(stoi(num_workers));
+             for(int j =0; j < stoi(num_workers); ++j){
+                std::string a = "a";
+                a[0] += j;
+                std::vector<std::string> ips = where_to(a + "-" + "pagerank");
+                std::string file_name = "xaa";
+                file_name[2] += j;
+                std::string new_name = a + "-" + "pagerank" ;
+                //lists.push_back(ips[0]);
+                upload_file((char *)ips[0].c_str(),FTP_SERVER_PORT,"./",(char *)file_name.c_str(),(char *)new_name.c_str());
+            }
+//            boost::thread sava_master(sava_master_thread);
+            std::string response = "";
+            //boost::thread t(fdet, ips,num_workers,num_iterations);
+            std::string ip = "172.22.147.36";
+            if(bbol)
+                udp_sendmsg("1;pagerank;" + num_workers + ";" + num_iterations + ";" + data, ip, SAVA_MASTER_PORT,response  );
+            bbol = false;
+            std::cout << "response \n" << response;
+        }
+    }
+
+    boost::this_thread::sleep(boost::posix_time::milliseconds(10000));
+    fdet(ips,num_workers, num_iterations);
+}
 
 int main(int argc, char* argv[])
 {
@@ -775,8 +830,18 @@ int main(int argc, char* argv[])
     boost::thread monitor_server(monitor_listener);
     background_servers.add_thread(&monitor_server);
 
+    //add sava_master thread
+    boost::thread sava_master(sava_master_thread);
+    background_servers.add_thread(&sava_master);
+
+    //add sava worker thread
+    boost::thread sava_worker(sava_worker_thread);
+    background_servers.add_thread(&sava_worker);
+    
     boost::thread master_election(master_elector);
     background_servers.add_thread(&master_election);
+
+
 
     boost::thread monitor_thread(monitor);
     background_servers.add_thread(&monitor_thread);
@@ -828,7 +893,7 @@ int main(int argc, char* argv[])
 
     for(int csd =0 ; csd < 10; csd++){
         int choice;
-        std::cout << "PRESS 1 to leave the network\nPRESS 2 to display membership list\nPRESS 3 to enter SDFS command\n";
+        std::cout << "PRESS 1 to leave the network\nPRESS 2 to display membership list\nPRESS 3 to enter SDFS command\nPRESS 4 for submitting SAVA TASK\n";
         try{
             std::cin >> choice;
         }catch(...){
@@ -844,6 +909,75 @@ int main(int argc, char* argv[])
                 std::cout << count++ << " \t\t\t" << it->first << " \t\t\t" << boolstr( it->second.failed_)  << std::endl;
                 it++;
             }   
+        }
+        else if(choice==4){
+            //take user job type and dataset
+            std::string job_type; 
+            std::string file_name;
+            std::string num_workers;
+            std::string num_iterations;
+            //contact master and ask for how to split data
+            // call data_set_splitter and upload to respective server
+            //upload dataset to all workers
+            std::cin.ignore();
+            std::cout << "Enter job type\n";
+            std::getline(std::cin , job_type);
+            std::cout << "Enter Dataset\n";
+            std::getline(std::cin, file_name);
+            std::cout << "Enter number of workers\n";
+            std::getline(std::cin, num_workers);
+            std::cout << "Enter the number of iterations\n";
+            std::getline(std::cin,num_iterations);
+            global_partitioner(file_name, std::stoi(num_workers));
+            std::string data = get_info(stoi(num_workers));
+            std::cout << "Data is " << data << std::endl;
+            std::vector<std::string> lists;
+            for(int i =0; i < stoi(num_workers); ++i){
+                std::string a = "a";
+                a[0] += i;
+                std::vector<std::string> ips = where_to(a + "-" + job_type);
+                std::string file_name = "xaa";
+                file_name[2] += i;
+                std::string new_name = a + "-" + job_type ;
+                lists.push_back(ips[0]);
+                upload_file((char *)ips[0].c_str(),FTP_SERVER_PORT,"./",(char *)file_name.c_str(),(char *)new_name.c_str());
+            }       
+            //master starts job on all workers
+            time_t add_time,end_time;
+            time(&add_time);
+            std::string response;
+            boost::thread t(fdet, lists , num_workers , num_iterations );
+            std::cout << "Starting\n";
+            udp_sendmsg("1;"+job_type+";" + num_workers + ";" + num_iterations + ";" + data, master, SAVA_MASTER_PORT,response  );
+
+        
+            time(&end_time);
+            int num = stoi(num_iterations) - 1;
+            std::map<int, PageRankVertex > vertices;
+            std::string new_itr = std::to_string(num);
+            std::cout << "Time elapsed is " << end_time - add_time << " seconds." << std::endl;
+            
+            for(int i=0;i < stoi(num_workers);++i){
+                std::string file_name = "abcd-pagerank";
+                file_name[0] += i;
+                file_name += new_itr + "out";
+                std::vector<std::string> ips = where_to(file_name);
+
+                
+                download_file((char *)ips[0].c_str(),  FTP_SERVER_PORT , "./downloads/", (char *)file_name.c_str(),(char *)file_name.c_str());
+
+                std::ifstream infile("./downloads/" + file_name);
+                int a;
+                float b;
+                while(infile >> a >> b){
+                    PageRankVertex v(a);
+                    v.score = b;
+                    vertices.insert(std::pair<int,PageRankVertex>(a,v));
+                }
+            }
+            std::cout << "Rank Table :\n";
+            find_mpx(vertices);
+            //
         }
         else if(choice==3){
             std::string command;
@@ -889,6 +1023,7 @@ int main(int argc, char* argv[])
                     for(int i=0; i < arr.size()-1; ++i){
                         std::cout << "Uploading " << v[1] << " as " << v[2] << " to " <<  arr[i] << std::endl;
                         upload_file((char *)arr[i].c_str(),  FTP_SERVER_PORT , "./", (char *)v[1].c_str(),(char *) v[2].c_str());
+                  
                     }
 
                 }catch(...){
